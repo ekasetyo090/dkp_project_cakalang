@@ -110,8 +110,8 @@ JADWAL_SWITCH_PARAM = {
 
 ## 👨‍💻 Pengembang
 
-Dikembangkan oleh: Eka Agung  
-Kontak: [Hubungi melalui WhatsApp] atau email sesuai kebutuhan proyek.
+Dikembangkan oleh: Eka Setyo Agung Mahanani  
+Kontak: Dinas Kelautan dan Perikanan Kabupaten Halmahera Timur
 
 ---
 
