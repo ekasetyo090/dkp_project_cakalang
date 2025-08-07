@@ -20,7 +20,9 @@ from selenium.webdriver.common.keys import Keys
 
 class WhatsAPI:
     def __init__(self):
-        self.driver_path = r'edge web driver\msedgedriver.exe'
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        self.driver_path = os.path.join(current_dir, "..", "edge web driver", "msedgedriver.exe")
+        # self.driver_path = r'.\edge web driver\msedgedriver.exe'
         self.binary_path = r'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe'
         self.user_data_dir = r'C:\Users\eka agung\AppData\Local\Microsoft\Edge\User Data'
         self.profile_directory = 'Default'
@@ -93,6 +95,23 @@ class WhatsAPI:
         return False
     def check_button(self,driver,xpath:str):
         return driver.find_elements(By.XPATH, xpath)
+    
+    def klik_button_lanjut(self,driver, timeout=30):
+        try:
+            # Tunggu div popup muncul
+            popup_div = WebDriverWait(driver, timeout).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, 'div[data-animate-modal-popup="true"]'))
+            )
+
+            # Cari tombol dengan teks "Lanjut" di dalam popup
+            button_lanjut = popup_div.find_element(By.XPATH, './/button[.//div[text()="Lanjut"]]')
+            
+            # Klik tombolnya
+            button_lanjut.click()
+            print("✅ Tombol 'Lanjut' berhasil diklik.")
+
+        except Exception as e:
+            print("❌ Tidak menemukan tombol 'Lanjut' atau popup:", e)
         
     def tunggu_dan_klik_button(self, driver, class_name="x", timeout=30):
         try:
@@ -107,18 +126,34 @@ class WhatsAPI:
         except Exception as e:
             print(f"❌ Gagal klik tombol dengan class '{class_name}': {e}")
 
-    def scroll_message(self, driver, times=1):
+    def scroll_message(self, driver, times=1, timeout=15):
         try:
-            scrollable_div = driver.find_element(
-                By.XPATH,
-                '//div[@class="x10l6tqk x13vifvy x1o0tod xyw6214 x9f619 x78zum5 xdt5ytf xh8yej3 x5yr21d x6ikm8r x1rife3k xjbqb8w x1ewm37j" and @tabindex="0"]'
+            # Tunggu maksimal 'timeout' detik sampai elemen muncul
+            scrollable_div = WebDriverWait(driver, timeout).until(
+                EC.presence_of_element_located((By.XPATH, '//div[@tabindex="0" and @data-tab="8" and @role="application"]'))
             )
             for _ in range(times):
                 driver.execute_script("arguments[0].scrollTop = 0;", scrollable_div)
+        
+        except TimeoutException:
+            print(f"Timeout: Elemen tidak muncul dalam {timeout} detik. Melakukan refresh halaman...")
+            driver.refresh()
+            time.sleep(30)
+        
         except NoSuchElementException:
             print("Elemen tidak ditemukan. Melakukan refresh halaman...")
             driver.refresh()
-            time.sleep(3)
+            time.sleep(30)
+    
+    def buka_chat_wa(self,driver, no_wa):
+        formatted_wa = format_wa_number(no_wa)
+        url = f"https://web.whatsapp.com/send?phone={formatted_wa}&source=&data=#"
+        driver.get(url)
+        while True:
+            if WA_API.wait_for_dom_stable(driver, timeout=int(os.getenv('SCAN_TIMEOUT'))):
+                print(f"📨 Membuka chat: {no_wa}")
+                time.sleep(3)
+                break
 
     def get_text_data(self,driver):
         data = {}
@@ -138,8 +173,9 @@ class WhatsAPI:
                 
             except Exception as e:
                 continue
-            if re.search(r'https?://\S+|www\.\S+', text_content) or len(text_content)==0:
+            if re.search(r'https?://\S+|www\.\S+', text_content) or len(text_content)<=15:
                 continue
+            # if len()
             # continue
             if timestamp not in data:
                 data[timestamp] = {}
@@ -149,7 +185,8 @@ class WhatsAPI:
                 data[timestamp][data_id].append(text_content)
         #del incoming_messages,data_id,pre_plain_elem,pre_plain_text,timestamp,match,msg_in,text_content
         return data
-    def check_new_respon(self,driver,waktu_terakhir_kirim_permintaan):
+    
+    def check_new_respon(self,driver,waktu_terakhir_kirim_permintaan,max_timing):
         start_time = time.time()
         while True:
             # Ambil data terbaru dari driver
@@ -159,7 +196,7 @@ class WhatsAPI:
             # Cek apakah ada data BARU (lebih baru dari waktu referensi)
             found_new = False
             for timestamp in data_text.keys():
-                if timestamp < waktu_terakhir_kirim_permintaan:
+                if timestamp >= waktu_terakhir_kirim_permintaan and timestamp < max_timing:
                     found_new = True
                     break  # Keluar dari loop for begitu ditemukan satu data baru
             
@@ -197,3 +234,60 @@ class WhatsAPI:
         except Exception as e:
             print(f"❌ Gagal mengirim pesan: {e}")
             return False
+        
+    def whatsapp_initialize(self):
+        WA_API = self.WhatsAPI()
+        base_url_wa = 'https://' +"web.whatsapp.com"
+        if WA_API.check_edge_process():
+            WA_API.terminate_edge_process()
+        else:
+            pass
+        DRIVER = WA_API.get_driver()
+        DRIVER.get(base_url_wa)
+        while True:
+            if WA_API.wait_for_dom_stable(DRIVER,timeout=int(os.getenv('SCAN_TIMEOUT'))):
+                while True:
+                    if WA_API.check_login_QR(DRIVER) == 0 and WA_API.check_app_initialize_screen(DRIVER) == 0 and WA_API.check_chat_icon(DRIVER)>0:
+                        time.sleep(6)
+                        
+                        # WA_API.tunggu_dan_klik_button(DRIVER,class_name="x889kno x1a8lsjc x13jy36j x64bnmy x1n2onr6 x1rg5ohu xk50ysn x1f6kntn xyesn5m x1rl75mt x19t5iym xz7t8uv x13xmedi x178xt8z x1lun4ml xso031l xpilrb4 x13fuv20 x18b5jzi x1q0q8m5 x1t7ytsu x1v8p93f x1o3jo1z x16stqrj xv5lvn5 x1hl8ikr xfagghw x9dyr19 x9lcvmn x1pse0pq xcjl5na xfn3atn x1k3x3db x9qntcr xuxw1ft xv52azi")
+                        
+                        break
+                    else:
+                        time.sleep(1)
+                        continue
+                break
+
+            else:
+                continue
+        
+        return DRIVER, WA_API
+    
+    def validate_wa(self,driver,no_wa:str):
+        url = f"https://web.whatsapp.com/send?phone={no_wa}&source=&data=#"
+        driver.get(url)
+        while True:
+            if wait_for_dom_stable(driver):
+                break
+            else:
+                pass
+
+        wa_val = True
+        try:
+            popup = WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.XPATH, '//div[@aria-label="Nomor telepon yang dibagikan via tautan tidak valid."]'))
+            )
+            print("Dialog ditemukan.")
+
+            # Cari dan klik tombol "OKE"
+            oke_button = WebDriverWait(driver, 5).until(
+                EC.element_to_be_clickable((By.XPATH, '//button[.//div[text()="OKE"]]'))
+            )
+            oke_button.click()
+            print("Tombol OKE diklik.")
+            wa_val = False
+            del popup
+        except Exception as e:
+            print("Dialog atau tombol tidak ditemukan:", e)
+            pass
+        return wa_val

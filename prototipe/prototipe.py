@@ -252,8 +252,8 @@ def main(DRIVER,WA_API):
         
         cursor, conn  = make_cursor()
         cursor.execute(
-            "SELECT MAX(jadwal_pengiriman_pesan_selanjutnya) AS jadwal FROM jadwal_pengiriman_pesan_selanjutnya WHERE no_wa = %s",
-            (no_wa,)
+            "SELECT MAX(jadwal_pengiriman_pesan_selanjutnya) AS jadwal FROM jadwal_pengiriman_pesan_selanjutnya WHERE no_wa = %s AND is_condition = %s",
+            (no_wa,'active')
         )
         result = cursor.fetchone()
         jadwal = result['jadwal'] if result and result['jadwal'] else None
