@@ -14,7 +14,7 @@ from selenium.webdriver.edge.service import Service
 from selenium.webdriver.edge.options import Options
 from selenium.common.exceptions import NoSuchElementException
 from selenium.webdriver.common.keys import Keys
-
+from selenium.common.exceptions import TimeoutException
 
 
 
@@ -86,7 +86,7 @@ class WhatsAPI:
             });
         """)
         end_time = time.time() + timeout
-        while time.time() < end_time:
+        while time.time() < end_time+1:
             changed = driver.execute_script("return window.domChanged;")
             if not changed:
                 return True
@@ -126,24 +126,37 @@ class WhatsAPI:
         except Exception as e:
             print(f"❌ Gagal klik tombol dengan class '{class_name}': {e}")
 
-    def scroll_message(self, driver, times=1, timeout=15):
-        try:
-            # Tunggu maksimal 'timeout' detik sampai elemen muncul
-            scrollable_div = WebDriverWait(driver, timeout).until(
-                EC.presence_of_element_located((By.XPATH, '//div[@tabindex="0" and @data-tab="8" and @role="application"]'))
-            )
-            for _ in range(times):
-                driver.execute_script("arguments[0].scrollTop = 0;", scrollable_div)
-        
-        except TimeoutException:
-            print(f"Timeout: Elemen tidak muncul dalam {timeout} detik. Melakukan refresh halaman...")
-            driver.refresh()
-            time.sleep(30)
-        
-        except NoSuchElementException:
-            print("Elemen tidak ditemukan. Melakukan refresh halaman...")
-            driver.refresh()
-            time.sleep(30)
+    def scroll_div_check(self,driver,no_WA,time_out_count=15): #-> false if div not found
+        url=f"https://web.whatsapp.com/send?phone={no_WA}&source=&data=#"
+        max_retry = 1
+        timeout = 30
+        time_out_count = 0
+        while time_out_count < max_retry:
+            try:
+                # Tunggu maksimal 'timeout' detik sampai elemen muncul
+                scrollable_div = WebDriverWait(driver, timeout).until(
+                    EC.presence_of_element_located((By.XPATH, '//div[@tabindex="0" and @data-tab="8" and @role="application"]'))
+                )
+                # for _ in range(times):
+                #     driver.execute_script("arguments[0].scrollTop = 0;", scrollable_div)
+            
+            except TimeoutException:
+                time_out_count +=1
+                print(f"Timeout: Elemen tidak muncul dalam {timeout} detik. Melakukan refresh halaman...")
+                # driver.refresh()
+                # time.sleep(60)
+                # driver.get(url)
+                time.sleep(10)
+                continue
+            
+            except NoSuchElementException or time_out_count>=2:
+                print("Elemen tidak ditemukan. Melakukan refresh halaman...")
+                # driver.refresh()
+                # time.sleep(30)
+                return False
+            else: 
+                return scrollable_div
+        return False
     
     def buka_chat_wa(self,driver, no_wa):
         formatted_wa = format_wa_number(no_wa)
@@ -186,7 +199,7 @@ class WhatsAPI:
         #del incoming_messages,data_id,pre_plain_elem,pre_plain_text,timestamp,match,msg_in,text_content
         return data
     
-    def check_new_respon(self,driver,waktu_terakhir_kirim_permintaan,max_timing):
+    def check_new_respon(self,driver,waktu_terakhir_kirim_permintaan,max_timing,no_WA):
         start_time = time.time()
         while True:
             # Ambil data terbaru dari driver
@@ -209,15 +222,20 @@ class WhatsAPI:
           
             if time.time() - start_time > 15:
                 return None
-            self.scroll_message(driver)
+            scroll_div_element = self.scroll_div_check(driver,no_WA)
+            if scroll_div_element == False:
+                break
+            else:
+                for _ in range(1):
+                    driver.execute_script("arguments[0].scrollTop = 0;", scroll_div_element)
         return data_text
     
     def kirim_pesan_permintaan(self, driver, pesan_kirim: str):
         try:
-            input_box = WebDriverWait(driver, 20).until(
+            input_box = WebDriverWait(driver, 30).until(
                 EC.presence_of_element_located((
                     By.XPATH,
-                    '//div[@contenteditable="true" and @aria-label="Ketik pesan"]'
+                    '//div[@aria-activedescendant and @contenteditable="true" and @role="textbox" and @aria-placeholder="Ketik pesan" and @aria-autocomplete="list"]'
                 ))
             )
             try:
@@ -226,14 +244,16 @@ class WhatsAPI:
                 pesan = pesan_kirim
             except NameError:
                 raise NameError("❗ pesan_kirim belum didefinisikan.")
+            
+        except Exception as e:
+            print(f"❌ Gagal mengirim pesan: {e}")
+            return False
+        else:
             input_box.click()
             input_box.send_keys(pesan)
             input_box.send_keys(Keys.ENTER)
             print("📩 Permintaan data terkirim.")
             return True
-        except Exception as e:
-            print(f"❌ Gagal mengirim pesan: {e}")
-            return False
         
     def whatsapp_initialize(self):
         WA_API = self.WhatsAPI()

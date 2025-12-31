@@ -224,11 +224,12 @@ def buka_chat_wa(driver, no_wa):
     formatted_wa = format_wa_number(no_wa)
     url = f"https://web.whatsapp.com/send?phone={formatted_wa}&source=&data=#"
     driver.get(url)
-    while True:
-        if WA_API.wait_for_dom_stable(driver, timeout=int(os.getenv('SCAN_TIMEOUT'))):
-            print(f"📨 Membuka chat: {no_wa}")
-            time.sleep(10)
-            break
+    time.sleep(30)
+    # while True:
+    #     if WA_API.wait_for_dom_stable(driver, timeout=int(os.getenv('SCAN_TIMEOUT'))):
+    #         print(f"📨 Membuka chat: {no_wa}")
+    #         time.sleep(10)
+    #         break
 
 def insert_log_permintaan(cursor, conn, no_wa, tanggal_pengiriman, tanggal_data):
     try:
@@ -372,7 +373,7 @@ def get_df_reminder(cursor, no_wa, tanggal_data):
     columns = [desc[0] for desc in cursor.description]
     return pd.DataFrame(result, columns=columns)
 
-def handle_permintaan_data(data, driver):
+def handle_permintaan_data(data, driver,interval_1:int,interval_2:int):
        
     no_wa = data.get('no_wa')
     nama_upi = data.get('nama_upi')
@@ -398,8 +399,8 @@ def handle_permintaan_data(data, driver):
         WA_API.kirim_pesan_permintaan(driver, ' '.join(pesan))
         print(tanggal_data)
         insert_log_permintaan(cursor, conn, no_wa, today, tanggal_data)
-        insert_log_reminder(cursor, conn, no_wa, today + timedelta(minutes=0.3), tanggal_data)
-        return
+        insert_log_reminder(cursor, conn, no_wa, today + timedelta(minutes=interval_1), tanggal_data)
+        
     if df_jadwal.shape[0]==1 and jadwal_count>=1:
         tanggal_data = df_jadwal['tanggal_data'].max().replace(hour=0, minute=0, second=0,microsecond=0)
         batas_pengambilan_data = (tanggal_data + relativedelta(months=2)).replace(hour=0, minute=0, second=0,microsecond=0)
@@ -410,15 +411,16 @@ def handle_permintaan_data(data, driver):
             # Check data response
             data_text = WA_API.check_new_respon(driver=driver,
                                                 waktu_terakhir_kirim_permintaan=df_jadwal['tanggal_pengiriman'].max(),
-                                                max_timing=batas_pengambilan_data)
-
+                                                max_timing=batas_pengambilan_data,no_WA=no_wa)
+            # if not data_text:
+            #     return
             cursor.execute("SELECT COUNT(*) FROM data_text WHERE no_wa = %s AND tanggal_data = %s", (no_wa, tanggal_data))
             # count_data_text = cursor.fetchone()[0]
             result = cursor.fetchone()
             count_data_text = result['COUNT(*)'] if result else 0
 
             if not data_text or len(data_text) < 1 or count_data_text > 0:
-                update_log_reminder(cursor, conn, no_wa, today + timedelta(minutes=15), tanggal_data)
+                update_log_reminder(cursor, conn, no_wa, today + timedelta(minutes=interval_2), tanggal_data)
                 pesan = [
                     f'{salam_waktu()} Bapak/Ibu {nama_pemilik}, Mengingatkan bapak/ibu untuk mengirimkan data {jenis_data} bulan {tanggal_data.strftime('%B %Y')}',
                     f'untuk kelompok/upi {nama_upi}, terima kasih. Sistem ini tidak menerima data berupa foto, video, dan pesan suara, sistem hanya menerima pesan tulisan.'
@@ -434,16 +436,19 @@ def handle_permintaan_data(data, driver):
                     "data berupa foto, video, dan pesan suara; sistem hanya menerima pesan tulisan."]
             WA_API.kirim_pesan_permintaan(driver, ' '.join(pesan))
             insert_log_permintaan(cursor, conn, no_wa, today, data_selanjutnya)
-            insert_log_reminder(cursor, conn, no_wa, today + timedelta(minutes=15), data_selanjutnya)
+            insert_log_reminder(cursor, conn, no_wa, today + timedelta(minutes=interval_2), data_selanjutnya)
 
         else:
             # data sudah masuk tapi belum ditandai inactive
             data_text = WA_API.check_new_respon(driver=driver,
                                                 waktu_terakhir_kirim_permintaan=df_jadwal['tanggal_pengiriman'].max(),
-                                                max_timing=batas_pengambilan_data)
+                                                max_timing=batas_pengambilan_data,no_WA=no_wa)
+            
             if data_text:
                 update_text_data(data_text, no_wa, cursor, conn, tanggal_data, df_jadwal['permintaan_id'].max())
                 update_log_permintaan_inactive(cursor, conn, no_wa, tanggal_data)
+            else:
+                return
 
     if df_jadwal.shape[0]>1 and jadwal_count>=1:
         tanggal_data = df_jadwal['tanggal_data'].max().replace(hour=0, minute=0, second=0,microsecond=0)
@@ -456,11 +461,11 @@ def handle_permintaan_data(data, driver):
 
         bulan_tahun_str = ', '.join([tanggal.strftime('%B %Y') for tanggal in bulan_tahun_list])
 
-        if today < batas_pengambilan_data and today >= df_reminder['tanggal'].max():
+        if today <= batas_pengambilan_data and today >= df_reminder['tanggal'].max():
             # Check data response
             data_text = WA_API.check_new_respon(driver=driver,
                                                 waktu_terakhir_kirim_permintaan=df_jadwal['tanggal_pengiriman'].max(),
-                                                max_timing=batas_pengambilan_data)
+                                                max_timing=batas_pengambilan_data,no_WA=no_wa)
 
             cursor.execute("SELECT COUNT(*) FROM data_text WHERE no_wa = %s AND tanggal_data = %s", (no_wa, tanggal_data))
             # count_data_text = cursor.fetchone()[0]
@@ -468,7 +473,7 @@ def handle_permintaan_data(data, driver):
             count_data_text = result['COUNT(*)'] if result else 0
 
             if not data_text or len(data_text) < 1 or count_data_text > 0:
-                update_log_reminder(cursor, conn, no_wa, today + timedelta(minutes=15), tanggal_data)
+                update_log_reminder(cursor, conn, no_wa, today + timedelta(minutes=interval_2), tanggal_data)
                 #bulan_tahun_str = ', '.join(tanggal.strftime('%B %Y') for tanggal in df_jadwal['tanggal_data'].unique())
 
                 pesan = [
@@ -487,25 +492,36 @@ def handle_permintaan_data(data, driver):
                     "data berupa foto, video, dan pesan suara; sistem hanya menerima pesan tulisan."]
             WA_API.kirim_pesan_permintaan(driver, ' '.join(pesan))
             insert_log_permintaan(cursor, conn, no_wa, today, data_selanjutnya)
-            insert_log_reminder(cursor, conn, no_wa, today + timedelta(minutes=15), data_selanjutnya)
+            insert_log_reminder(cursor, conn, no_wa, today + timedelta(minutes=interval_2), data_selanjutnya)
 
         else:
             # data sudah masuk tapi belum ditandai inactive
             data_text = WA_API.check_new_respon(driver=driver,
                                                 waktu_terakhir_kirim_permintaan=df_jadwal['tanggal_pengiriman'].max(),
-                                                max_timing=batas_pengambilan_data)
+                                                max_timing=batas_pengambilan_data,no_WA=no_wa)
             if data_text:
                 update_text_data(data_text, no_wa, cursor, conn, tanggal_data, df_jadwal['permintaan_id'].max())
                 update_log_permintaan_inactive(cursor, conn, no_wa, bulan_tahun_list)
-                
+            else:
+                return
 
 if __name__ == '__main__':
     DRIVER,WA_API = whatsapp_initialize()
     cursor, conn  = make_cursor()
     min_id_var,max_id_var = get_min_max_id_koresponden(conn,cursor)
     while True:
-       for idx in range(min_id_var,min_id_var+1,1):
-            #get row value from table data_koresponden with idx
-            data = get_koresponden_by_id(conn,cursor,idx)
-            handle_permintaan_data(data, DRIVER)
-            # time.sleep(10)
+        # for idx in range(min_id_var,max_id_var+1,1):
+        #     #get row value from table data_koresponden with idx
+        #     data = get_koresponden_by_id(conn,cursor,idx)
+        #     # handle_permintaan_data(data, DRIVER)
+        #     handle_permintaan_data(data, DRIVER,interval_1=3,interval_2=5)
+        #     # print(data)
+        #     cursor.nextset()
+        #     time.sleep(10)
+
+        data = get_koresponden_by_id(conn,cursor,7)
+        handle_permintaan_data(data, DRIVER,interval_1=3,interval_2=5)
+        # handle_permintaan_data(data, driver,interval_1:int,interval_2:int)
+        # print(data)
+        cursor.nextset()
+        time.sleep(10)
